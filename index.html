@@ -851,25 +851,40 @@ function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("o
 /* ---------- moteur de classement ----------
    Données par bureau : résultats officiels bureau par bureau (ville de Montrouge, openRésultat).
    - pp_e24 : liste Réveiller l'Europe (Glucksmann, PS-Place publique), européennes 2024
-   - part_gauche_pp : part de PP dans l'espace de gauche local (PP + LFI + écologistes + gauche unie + LO + PRT)
+   - part_gauche_pp : part de PP dans l'espace de gauche local
    - centre_22_t1 / centre_22_t2 : Macron, présidentielle 2022 (t1 et t2)
+   - ens_e24 : liste Besoin d'Europe (Hayer), européennes 2024
+   - eelv_e24 : liste Europe Écologie (Toussaint), européennes 2024
    - gauche_22_t1 : Mélenchon + Jadot + Hidalgo + Roussel + Poutou + Arthaud (t1 2022)
-   - particip_22_t1 : participation (en % des inscrits)
-   Trois leviers, chacun en rang 0-100 parmi les 32 bureaux :
-   - consolider (0.6 pp_e24 + 0.4 part_gauche_pp) : électeurs PP déjà là, à affermir
-   - convaincre (0.5 centre_22_t1 + 0.5 centre_22_t2) : électorat de centre, cible naturelle du projet
-   - mobiliser  (0.6 gauche_22_t1 + 0.4 abstention) : gauche abstentionniste
-   Potentiel = 0.8 × meilleur levier + 0.2 × taille du bureau (inscrits). */
+   - particip_22_t1 : participation (% des inscrits)
+   Logique : maximiser le GAIN MARGINAL, pas le réconfort. Un bureau déjà gagné à 28 % par
+   la liste PS-PP offre peu de voix supplémentaires ; un bureau où le réservoir de centre et
+   d'écologistes est large mais où PP reste en dessous de sa moyenne est celui où une
+   tournée de portes rapporte le plus. Tout est en rangs 0-100 parmi les 32 bureaux :
+   - réservoir centre  : 0.45·Macron t2 2022 + 0.30·Hayer + 0.25·Macron t1 2022
+   - réservoir écolo   : Toussaint
+   - réservoir gauche  : gauche t1 2022 ; abstention : 100 − participation t1 2022
+   - adhésion acquise  : 0.5·PP 2024 + 0.5·part de PP dans la gauche locale
+   Trois gains = réservoir × pénétration restante :
+   - basculer    : (0.8·centre + 0.2·écolo) × (100 − adhésion acquise)/100
+   - rassembler  : gauche × (100 − part de PP dans la gauche)/100
+   - remobiliser : (0.5·gauche + 0.5·abstention) × (100 − adhésion acquise)/100
+   Potentiel = 0.8 × meilleur gain + 0.2 × taille du bureau (inscrits). */
 function rangs(f) { const v = IDS.map(i => [i, f(B[i])]).sort((a, b) => a[1] - b[1]), o = {}; v.forEach(([i], k) => o[i] = 100 * k / (v.length - 1)); return o; }
-const R = {
-  pp: rangs(b => b.pp_2024_euro_t1),
-  dyn: rangs(b => b.part_gauche_pp),
-  vol: rangs(b => b.inscrits)
-};
-R.consolider = (() => { const o = {}; IDS.forEach(i => o[i] = .6 * R.pp[i] + .4 * R.dyn[i]); return o })();
-R.convaincre = (() => { const a = rangs(b => b.centre_2022_pres_t1), c = rangs(b => b.centre_2022_pres_t2), o = {}; IDS.forEach(i => o[i] = (a[i] + c[i]) / 2); return o })();
-R.mobiliser = (() => { const g = rangs(b => b.gauche_2022_pres_t1), a = rangs(b => 100 - b.particip_2022_pres_t1), o = {}; IDS.forEach(i => o[i] = .6 * g[i] + .4 * a[i]); return o })();
-const POT = {}; IDS.forEach(i => POT[i] = .8 * Math.max(R.consolider[i], R.convaincre[i], R.mobiliser[i]) + .2 * R.vol[i]);
+const R = { pp: rangs(b => b.pp_2024_euro_t1), dyn: rangs(b => b.part_gauche_pp), vol: rangs(b => b.inscrits) };
+R.centre = (() => { const a = rangs(b => b.centre_2022_pres_t1), t = rangs(b => b.centre_2022_pres_t2), e = rangs(b => b.ens_2024_euro_t1), o = {}; IDS.forEach(i => o[i] = .45 * t[i] + .30 * e[i] + .25 * a[i]); return o })();
+R.ecolo = rangs(b => b.eelv_2024_euro_t1);
+R.gauche = rangs(b => b.gauche_2022_pres_t1);
+R.abstention = rangs(b => 100 - b.particip_2022_pres_t1);
+R.acquis = (() => { const o = {}; IDS.forEach(i => o[i] = .5 * R.pp[i] + .5 * R.dyn[i]); return o })();
+const G = {};
+IDS.forEach(i => {
+  G.basculer = G.basculer || {}; G.rassembler = G.rassembler || {}; G.remobiliser = G.remobiliser || {};
+  G.basculer[i] = (.8 * R.centre[i] + .2 * R.ecolo[i]) * (100 - R.acquis[i]) / 100;
+  G.rassembler[i] = R.gauche[i] * (100 - R.dyn[i]) / 100;
+  G.remobiliser[i] = (.5 * R.gauche[i] + .5 * R.abstention[i]) * (100 - R.acquis[i]) / 100;
+});
+const POT = {}; IDS.forEach(i => POT[i] = .8 * Math.max(G.basculer[i], G.rassembler[i], G.remobiliser[i]) + .2 * R.vol[i]);
 
 /* Où ne pas s'attarder : les ~10 % de bureaux les plus marqués pour chaque camp */
 function seuil(f, p = .9) { const v = IDS.map(i => f(B[i])).sort((a, b) => a - b); return v[Math.floor(p * (v.length - 1))]; }
@@ -893,11 +908,15 @@ function alertes(b) {
   return a;
 }
 
-/* Signal « Macron et PP » : Macron 2022 au-dessus de Montrouge ET PP 2024 au-dessus de Montrouge (fort)
-   ou seulement PP au-dessus de la France (simple). Faits observés, pas des intentions de vote. */
-function signalMacronPP(b) {
-  if (b.centre_2022_pres_t1 <= V.centre_2022_pres_t1) return 0;
-  return b.pp_2024_euro_t1 > V.pp_2024_euro_t1 ? 2 : b.pp_2024_euro_t1 > NAT.pp_2024_euro_t1 ? 1 : 0;
+/* Signaux de classement, faits observés, pas des intentions de vote :
+   - 2 = à convaincre : vote de centre au-dessus de la ville ET liste PS-PP encore en dessous
+     de la moyenne de la ville. Le réservoir est là, l'adhésion pas encore : gain maximal.
+   - 1 = appui consolidé : Macron 2022 et liste PS-PP tous deux au-dessus de la ville :
+     utile pour le second tour et les sympathisants, mais gain marginal plus faible. */
+function bonusSignal(b) {
+  if (b.centre_2022_pres_t1 > V.centre_2022_pres_t1 && b.pp_2024_euro_t1 < V.pp_2024_euro_t1) return 2;
+  if (b.centre_2022_pres_t1 > V.centre_2022_pres_t1 && b.pp_2024_euro_t1 > V.pp_2024_euro_t1) return 1;
+  return 0;
 }
 
 /* Tableau à trois échelles : Ce bureau / Montrouge / France */
@@ -906,33 +925,36 @@ const t3 = (b, rows) => `<div class="t3"><span></span><span class="h b">Ce bur.<
 const R_PP = ["Liste PS-PP (Glucksmann), européennes 2024", "pp_2024_euro_t1"];
 const R_MAC = ["Macron, 1er tour 2022", "centre_2022_pres_t1"];
 
-/* Qui aller chercher : électorats plus nombreux ici que dans le reste de Montrouge */
+/* Qui aller chercher : d'abord les voix à faire basculer, ensuite les appuis à activer */
 function cibles(b) {
-  const sg = signalMacronPP(b);
+  const sg = bonusSignal(b);
   const c = [
-    ...(sg ? [{
-      t: sg === 2 ? "Macron 2022 et liste PS-PP 2024 au-dessus de la ville" : "Macron 2022 au-dessus de la ville, liste PS-PP 2024 au-dessus de la France", e: sg === 2 ? 100 : 50,
-      s: sg === 2 ? "Dans ce quartier, Macron a fait au 1er tour 2022 un meilleur score que dans le reste de Montrouge. Aux européennes 2024, la liste PS-PP aussi."
-        : "Dans ce quartier, Macron a fait au 1er tour 2022 un meilleur score que dans le reste de Montrouge. Aux européennes 2024, la liste PS-PP y a fait mieux qu'en France, moins bien que dans la ville.",
-      rows: [R_MAC, R_PP], a: sg === 2 ? "parler de la campagne sans détour, présenter le projet, proposer la procuration aux absents." : "prendre le temps de présenter la campagne et le projet."
+    ...(sg === 2 ? [{
+      t: "À faire basculer : centre au-dessus de la ville, PS-PP en dessous", e: (b.centre_2022_pres_t1 - V.centre_2022_pres_t1) * 2,
+      s: "Dans ce quartier, le vote de centre est au-dessus de la moyenne de Montrouge, mais la liste PS-PP y est encore en dessous de la sienne : le réservoir de voix existe, il n'est pas encore gagné.",
+      rows: [R_MAC, ["Besoin d'Europe (Hayer), européennes 2024", "ens_2024_euro_t1"], R_PP],
+      a: "écouter d'abord, répondre aux objections sur le vote utile et l'Europe, conclure sur un engagement concret (vote, procuration, porte-à-porte)."
     }] : []),
-    { t: "Liste PS-PP 2024 au-dessus de la ville", e: (b.pp_2024_euro_t1 - V.pp_2024_euro_t1) * 1.5,
-      s: "Dans ce quartier, la liste PS-PP a fait aux européennes 2024 un meilleur score que dans le reste de Montrouge (23,44 % au niveau de la ville).",
-      rows: [R_PP], a: "parler de la campagne sans détour, rappeler la date du vote, proposer la procuration aux absents." },
-    { t: "Vote écologiste au-dessus de la ville", e: (b.eelv_2024_euro_t1 - V.eelv_2024_euro_t1),
-      s: "Dans ce quartier, la liste Europe Écologie (Toussaint) a fait aux européennes 2024 un meilleur score que dans le reste de Montrouge.",
-      rows: [["Europe Écologie (Toussaint), européennes 2024", "eelv_2024_euro_t1"]], a: "mettre en avant les arguments écologie du tract, s'il y en a." },
-    { t: "Électorat de gauche qui vote déjà PP", e: b.part_gauche_pp - V.part_gauche_pp,
-      s: "Dans ce quartier, la part de l'électorat de gauche qui a voté liste PS-PP aux européennes 2024 dépasse la moyenne de Montrouge.",
-      rows: [["Part de PP dans l'espace de gauche, européennes 2024", "part_gauche_pp"]], a: "consolider : ceux qui hésitent encore avec LFI ou l'abstention." },
-    { t: "Gauche au-dessus de la ville, participation en dessous", e: Math.min(b.gauche_2022_pres_t1 - V.gauche_2022_pres_t1, V.particip_2022_pres_t1 - b.particip_2022_pres_t1),
+    ...(sg === 1 ? [{
+      t: "Macron 2022 et liste PS-PP 2024 au-dessus de la ville", e: 40,
+      s: "Dans ce quartier, Macron a fait au 1er tour 2022 un meilleur score que dans le reste de Montrouge. Aux européennes 2024, la liste PS-PP aussi.",
+      rows: [R_MAC, R_PP],
+      a: "appui déjà large : identifier les sympathisants et leur proposer de s'engager (diffusion, convaincre leurs voisins), plutôt que de reconvaincre."
+    }] : []),
+    { t: "Électorat écologiste à rallier", e: (b.eelv_2024_euro_t1 - V.eelv_2024_euro_t1) * 1.5,
+      s: "Dans ce quartier, la liste Europe Écologie (Toussaint) a fait aux européennes 2024 un meilleur score que dans le reste de Montrouge : ces électeurs partagent le socle écologiste et pro-européen, restent à convaincre pour 2027.",
+      rows: [["Europe Écologie (Toussaint), européennes 2024", "eelv_2024_euro_t1"], R_PP], a: "parler climat et Europe, montrer que le projet reprend leurs priorités." },
+    { t: "Gauche locale où PP reste à convertir", e: Math.min(b.gauche_2022_pres_t1 - V.gauche_2022_pres_t1, V.part_gauche_pp - b.part_gauche_pp),
+      s: "Dans ce quartier, la gauche est au-dessus de la moyenne de Montrouge mais la part de cette gauche qui vote PS-PP est en dessous : des électeurs de gauche à persuader, pas à rallier d'office.",
+      rows: [["Gauche (tous candidats), 1er tour 2022", "gauche_2022_pres_t1"], ["Part de PP dans l'espace de gauche, européennes 2024", "part_gauche_pp"]], a: "assumer la ligne social-démocrate et pro-européenne, sans se renier, en s'appuyant sur les acquis sociaux et municipaux du quartier" },
+    { t: "Gauche abstentionniste", e: Math.min(b.gauche_2022_pres_t1 - V.gauche_2022_pres_t1, V.particip_2022_pres_t1 - b.particip_2022_pres_t1),
       s: "Dans ce quartier, au 1er tour 2022, la gauche a fait un meilleur score que dans le reste de Montrouge, et la participation a été plus faible.",
-      rows: [["Gauche (tous candidats), 1er tour 2022", "gauche_2022_pres_t1"], ["Participation, 1er tour 2022 (% des inscrits)", "particip_2022_pres_t1"]], a: "rappeler la date du vote et expliquer la procuration." },
+      rows: [["Gauche (tous candidats), 1er tour 2022", "gauche_2022_pres_t1"], ["Participation, 1er tour 2022 (% des inscrits)", "particip_2022_pres_t1"]], a: "rappeler la date du vote, expliquer la procuration, insister sur l'enjeu du scrutin." },
     { t: "Droite (LR et Le Pen) au-dessus de la ville", e: Math.max(b.lr_2024_euro_t1 - V.lr_2024_euro_t1, b.lepen_2022_pres_t1 - V.lepen_2022_pres_t1) * .7,
       s: "Dans ce quartier, la liste LR (européennes 2024) ou Marine Le Pen (1er tour 2022) dépassent leurs scores moyens à Montrouge.",
-      rows: [["LR, européennes 2024", "lr_2024_euro_t1"], ["Le Pen, 1er tour 2022", "lepen_2022_pres_t1"]], a: "mettre en avant les arguments Europe et sécurité du tract, s'il y en a." },
-  ].filter(x => x.e > 0.5).sort((a, c) => c.e - a.e).slice(0, 2);
-  return c.length ? c : [{ t: "Vote proche de la moyenne de la ville", s: "Dans ce quartier, aucun vote ne ressort plus que dans le reste de Montrouge.", rows: [R_MAC, R_PP], a: "message général, présenter la campagne." }];
+      rows: [["LR, européennes 2024", "lr_2024_euro_t1"], ["Le Pen, 1er tour 2022", "lepen_2022_pres_t1"]], a: "argument Europe et pouvoir d'achat du tract, sans s'attarder sur les portes hostiles." },
+  ].filter(Boolean).filter(x => x.e > 0.5).sort((a, c) => c.e - a.e).slice(0, 2);
+  return c.length ? c : [{ t: "Vote proche de la moyenne de la ville", s: "Dans ce quartier, aucun vote ne ressort plus que dans le reste de Montrouge. Le message généraliste s'applique.", rows: [R_MAC, R_PP], a: "message général, présenter la campagne et conclure sur la procuration." }];
 }
 const ficheElec = (b, x, ko) => `<div class="elec${ko ? " ko" : ""}"><div class="tt">${ko ? IC.stop : IC.cible}<span>${esc(x.t)}</span></div><p class="ph">${esc(x.s)}</p>${t3(b, x.rows)}${x.a ? `<p class="porte"><b>${canal === "tract" ? "En tractage" : "À la porte"} :</b> ${esc(x.a)}</p>` : ""}</div>`;
 
@@ -949,7 +971,10 @@ const TH = {
 const AFF = {};
 Object.entries(TH).forEach(([k, t]) => { const n = t.f(B[IDS[0]]).length, rs = [...Array(n).keys()].map(j => rangs(b => t.f(b)[j] ?? 0)); AFF[k] = {}; IDS.forEach(i => AFF[k][i] = rs.reduce((s, r) => s + r[i], 0) / n); });
 
-/* ---------- état ---------- */
+/* ---------- état ----------
+   score = POT (gain marginal) + bonus « à convaincre » (2 : +12) ou « appui consolidé » (1 : +5).
+   Les bureaux marqués à vote LFI ou RN/Reconquête fort voient leur score divisé par deux :
+   peu de voix convertibles, terrain peu rentable pour un porte-à-porte militant. */
 let canal = LS("g7m_canal", "pap"), tract = LS("g7m_tract", "general"), sel = null;
 let suivi = LS("g7m_suivi", {});
 $("#tract").value = tract;
@@ -959,7 +984,7 @@ function score(i) {
   let s = canal === "tract"
     ? (gen() ? .5 * R.vol[i] + .5 * POT[i] : .35 * R.vol[i] + .35 * AFF[tract][i] + .3 * POT[i])
     : (gen() ? POT[i] : .55 * AFF[tract][i] + .45 * POT[i]);
-  s += [0, 7, 15][signalMacronPP(b)];
+  s += [0, 5, 12][bonusSignal(b)];
   return al ? s * .5 : s;
 }
 const N_PRIO = () => canal === "pap" && gen() ? 3 : 8;
@@ -1053,7 +1078,7 @@ function carteBV(i, court) {
   const b = B[i], s = STAT[b._statut], al = alertes(b), c = cibles(b), vs = voisins(i);
   return `<div class="carte-bv" data-bv="${i}" role="button" tabindex="0"><div class="haut"><div><h3>Bureau ${+i}</h3><div class="lieu">${esc(b.lieu)} · ${esc(b.adresse)}</div></div><span class="pastille ${s[1]}">${s[0]}</span></div>
    ${canal === "tract" && vs.length ? `<div class="ligne">${IC.lieu}<span>Près du lieu de vote : ${vs.slice(0, 3).map(x => esc(x.n || NOM_POI[x.t])).join(" · ")}</span></div>` : ""}
-   ${signalMacronPP(b) === 2 ? `<div class="ligne"><span class="pastille p-sec" style="margin-top:2px;white-space:normal;font-weight:500">Bonus de classement : Macron 2022 (1er tour) et liste PS-PP 2024 au-dessus de la ville</span></div>` : ""}
+   ${(() => { const bs = bonusSignal(b); return bs === 2 ? `<div class="ligne"><span class="pastille p-sec" style="margin-top:2px;white-space:normal;font-weight:500">Priorité : centre au-dessus de la ville, liste PS-PP encore en dessous de sa moyenne, voix à faire basculer</span></div>` : bs === 1 ? `<div class="ligne"><span class="pastille p-sec" style="margin-top:2px;white-space:normal;font-weight:500">Appui consolidé : Macron 2022 et PS-PP 2024 au-dessus de la ville, activer les sympathisants plutôt que reconvaincre</span></div>` : ""; })()}
    <div class="ligne">${IC.cible}<span><b>Ici :</b> ${c.map(x => esc(x.t)).join(" · ")}</span></div>
    ${al.length ? `<div class="ligne">${IC.stop}<span><b>Ne pas s'attarder :</b> ${al.map(a => esc(a.t)).join(" · ")}</span></div>` : ""}
    <div class="etape4"><span class="n">4</span>Étape 4 : plus de détails <span aria-hidden="true">→</span></div></div>`;
@@ -1064,7 +1089,7 @@ function rendreListe() {
   let membres = o;
   if (q) membres = IDS.filter(i => norm(i + " " + B[i].lieu + " " + B[i].adresse).includes(q)).sort((a, c) => B[a]._rang - B[c]._rang);
   const titre = canal === "tract" ? "Où tracter" : "Où faire du porte-à-porte";
-  const sous = canal === "pap" && gen() ? "Tract généraliste : porte-à-porte limité aux 3 meilleurs bureaux. Le tractage est plus adapté."
+  const sous = canal === "pap" && gen() ? "Classement par gain marginal : bureaux où les voix à faire basculer sont nombreuses et l'adhésion déjà acquise faible. Tract généraliste : porte-à-porte limité aux 3 meilleurs bureaux, le tractage complète."
     : canal === "tract" ? "Lieux de passage repérés (métro, marché, supermarchés) autour des bureaux à fort potentiel. Puis tout bureau de passage."
       : `Publics concernés par « ${TH[tract]?.lib || ""} » et potentiel électoral.`;
   const prio = membres.filter(i => B[i]._statut === "prio"), poss = membres.filter(i => B[i]._statut === "poss"), reste = membres.filter(i => B[i]._statut === "sec" || B[i]._statut === "stop");
@@ -1077,7 +1102,7 @@ function rendreListe() {
    ${canal === "pap" ? `<div class="titre-liste" style="margin-top:18px"><b>Où ne pas s'attarder</b><span>${stop.length}</span></div><p style="margin:-4px 2px 12px;color:var(--encre2);font-size:13.5px">Bureaux où le vote LFI ou RN/Reconquête est parmi les plus forts de Montrouge. Peu de personnes à convaincre par porte.</p>${stop.map(i => carteBV(i)).join("")}` : `<div class="titre-liste" style="margin-top:18px"><b>En dernier</b><span>${reste.length}</span></div>${reste.map(i => carteBV(i)).join("")}`}
    ${mesStatsBloc()}
    <details class="comite"><summary>Notes sur les données</summary>
-     <p class="lecture">Résultats officiels bureau par bureau : ville de Montrouge (openRésultat) pour la présidentielle 2022 (t1 et t2), les européennes 2024 et les législatives 2024. Repères France : ministère de l'Intérieur. Lieux de passage : OpenStreetMap (fonds de carte intégré, fonctionne hors ligne). Aucune donnée nominative. Les profils décrivent des quartiers, jamais des personnes.</p>
+     <p class="lecture">Classement : gain marginal (réservoir de centre, d'écologistes ou de gauche × pénétration restante), pas volume d'adhérents. Résultats officiels bureau par bureau : ville de Montrouge (openRésultat) pour la présidentielle 2022 (t1 et t2), les européennes 2024 et les législatives 2024. Repères France : ministère de l'Intérieur. Lieux de passage : OpenStreetMap (fonds de carte intégré, fonctionne hors ligne). Aucune donnée nominative. Les profils décrivent des quartiers, jamais des personnes.</p>
      <p class="lecture">Montrouge ne publie ni le rattachement des rues aux bureaux, ni le périmètre géographique des bureaux : les bureaux sont donc placés sur leur lieu de vote, et la recherche par adresse renvoie vers <a href="https://www.service-public.fr/particuliers/vosdroits/demarches-et-outils/ISE" target="_blank" rel="noopener">l'outil officiel</a>.</p>
      <p><button class="btn" id="expS" type="button">Exporter mes comptes rendus (CSV)</button></p>
    </details>`;
@@ -1095,9 +1120,11 @@ function mesStatsBloc() {
 
 /* ---------- rendu détail (étape 4) ---------- */
 function levierBloc(b) {
-  const rows = [["Consolider le vote PP", .6 * R.pp[b.bv] + .4 * R.dyn[b.bv]], ["Convaincre l'électorat de centre", R.convaincre[b.bv]], ["Mobiliser la gauche abstentionniste", R.mobiliser[b.bv]]];
-  return `<div class="bloc"><h4>Les trois leviers ici</h4><div class="leviers">${rows.map(([l, v]) => `<div class="lev"><span>${l}</span><span class="barre"><i style="width:${Math.round(v)}%"></i></span><b class="num">${Math.round(v)}</b></div>`).join("")}</div>
-   <p class="lecture">Rang de 0 à 100 parmi les ${IDS.length} bureaux de Montrouge. Voir « Notes sur les données » pour les définitions.</p></div>`;
+  const i = b.bv;
+  const rows = [["Faire basculer le centre non gagné", G.basculer[i]], ["Rassembler la gauche pas encore PP", G.rassembler[i]], ["Remobiliser les abstentionnistes", G.remobiliser[i]]];
+  return `<div class="bloc"><h4>Où est le gain ici</h4><div class="leviers">${rows.map(([l, v]) => `<div class="lev"><span>${l}</span><span class="barre"><i style="width:${Math.round(v)}%"></i></span><b class="num">${Math.round(v)}</b></div>`).join("")}
+  <div class="lev"><span style="color:var(--encre3)">Adhésion PP déjà acquise (plus elle est haute, plus le gain marginal restant est faible)</span><span class="barre"><i style="width:${Math.round(R.acquis[i])}%;background:var(--sec)"></i></span><b class="num" style="color:var(--encre3)">${Math.round(R.acquis[i])}</b></div></div>
+  <p class="lecture">Rangs de 0 à 100 parmi les ${IDS.length} bureaux de Montrouge. Gain = réservoir × pénétration restante : un bureau déjà très PP rapporte moins de voix supplémentaires qu'un bureau au réservoir de centre ou d'écologistes large mais encore non converti.</p></div>`;
 }
 function histoBloc(i) {
   const l = suivi[i] || [];
